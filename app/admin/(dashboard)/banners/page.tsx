@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createBannerAction,
-  deleteBannerAction
+  deleteBannerAction,
+  toggleResourceAction
 } from "@/lib/actions/admin";
 import { getAdminBanners } from "@/lib/repositories/admin";
 
@@ -84,12 +85,26 @@ export default async function AdminBannersPage() {
                     {banner.subtitle}
                   </p>
                 </div>
-                <form action={deleteBannerAction}>
-                  <input type="hidden" name="id" value={banner.id} />
-                  <Button type="submit" size="icon" variant="ghost">
-                    <Trash2 className="size-4" />
-                  </Button>
-                </form>
+                <div className="flex gap-1">
+                  <form action={toggleResourceAction}>
+                    <input type="hidden" name="id" value={banner.id} />
+                    <input type="hidden" name="resource" value="hero_banners" />
+                    <input
+                      type="hidden"
+                      name="active"
+                      value={banner.is_active ? "false" : "true"}
+                    />
+                    <Button type="submit" size="sm" variant="outline">
+                      {banner.is_active ? "Disable" : "Enable"}
+                    </Button>
+                  </form>
+                  <form action={deleteBannerAction}>
+                    <input type="hidden" name="id" value={banner.id} />
+                    <Button type="submit" size="icon" variant="ghost">
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </form>
+                </div>
               </div>
             </article>
           ))}

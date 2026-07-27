@@ -3,20 +3,25 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { isSupabaseConfigured } from "@/lib/repositories/catalog";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { enforceSameOrigin, rateLimit } from "@/lib/server/security";
+import { createPublicClient } from "@/lib/supabase/public";
 
 export async function subscribeNewsletterAction(formData: FormData) {
+  await enforceSameOrigin();
+  await rateLimit("newsletter", 5, 10 * 60_000);
   const email = z.string().email().max(180).parse(formData.get("email"));
   if (isSupabaseConfigured) {
-    const { error } = await createAdminClient()
+    const { error } = await createPublicClient()
       .from("newsletter_subscribers")
-      .upsert({ email, is_active: true, unsubscribed_at: null }, { onConflict: "email" });
-    if (error) throw error;
+      .insert({ email });
+    if (error && error.code !== "23505") throw error;
   }
   redirect("/?subscribed=true#newsletter");
 }
 
 export async function sendContactMessageAction(formData: FormData) {
+  await enforceSameOrigin();
+  await rateLimit("contact", 5, 10 * 60_000);
   const payload = z
     .object({
       name: z.string().trim().min(2).max(120),
@@ -33,7 +38,7 @@ export async function sendContactMessageAction(formData: FormData) {
       message: formData.get("message")
     });
   if (isSupabaseConfigured) {
-    const { error } = await createAdminClient()
+    const { error } = await createPublicClient()
       .from("contact_messages")
       .insert(payload);
     if (error) throw error;

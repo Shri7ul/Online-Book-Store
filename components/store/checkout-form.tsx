@@ -104,7 +104,9 @@ export function CheckoutForm({ settings }: { settings: StoreSettings }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
       clearCart();
-      router.push(`/order-success?order=${encodeURIComponent(data.order_number)}`);
+      router.push(
+        `/order-success?order=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
+      );
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not place your order."

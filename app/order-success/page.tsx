@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BadgeCheck, Facebook, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { OrderStatusTracker } from "@/components/store/order-status-tracker";
 import { getSettings } from "@/lib/repositories/catalog";
 
 export const dynamic = "force-dynamic";
@@ -8,9 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function OrderSuccessPage({
   searchParams
 }: {
-  searchParams: Promise<{ order?: string }>;
+  searchParams: Promise<{ order?: string; token?: string }>;
 }) {
-  const [{ order }, settings] = await Promise.all([
+  const [{ order, token }, settings] = await Promise.all([
     searchParams,
     getSettings()
   ]);
@@ -29,6 +30,7 @@ export default async function OrderSuccessPage({
         <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-muted-foreground">
           {settings.confirmation_message}
         </p>
+        {order && token && <OrderStatusTracker order={order} token={token} />}
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
           {settings.facebook_url && (
             <Button asChild>

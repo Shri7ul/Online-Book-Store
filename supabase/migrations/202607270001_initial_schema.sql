@@ -167,6 +167,7 @@ create table public.coupons (
 create table public.orders (
   id uuid primary key default extensions.gen_random_uuid(),
   order_number text not null unique,
+  public_token uuid not null default extensions.gen_random_uuid() unique,
   user_id uuid references public.users(id) on delete set null,
   customer_name text not null,
   phone text not null,
@@ -318,6 +319,7 @@ create index coupons_lookup_idx on public.coupons(code, is_active, expires_at);
 create index orders_status_created_idx on public.orders(status, created_at desc);
 create index orders_phone_idx on public.orders(phone);
 create index orders_email_idx on public.orders(email);
+create index orders_public_tracking_idx on public.orders(order_number, public_token);
 create index order_items_order_idx on public.order_items(order_id);
 create index order_items_book_idx on public.order_items(book_id);
 create index order_events_order_created_idx on public.order_status_events(order_id, created_at);

@@ -5,14 +5,18 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth/admin";
 import { isSupabaseConfigured } from "@/lib/repositories/catalog";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/utils";
+
+type ServerSupabaseClient = Awaited<
+  ReturnType<typeof createServerSupabaseClient>
+>;
 
 async function adminClient() {
   await requireAdmin();
   if (!isSupabaseConfigured)
     throw new Error("Supabase credentials are required to save changes.");
-  return createAdminClient();
+  return createServerSupabaseClient();
 }
 
 function optional(value: FormDataEntryValue | null) {
@@ -25,6 +29,7 @@ function boolean(value: FormDataEntryValue | null) {
 }
 
 async function upload(
+  supabase: ServerSupabaseClient,
   bucket: string,
   folder: string,
   file: File | null,
@@ -35,8 +40,15 @@ async function upload(
   if (file.size > maxSize) throw new Error("Uploaded file is too large.");
   if (!allowed.includes(file.type)) throw new Error("Unsupported file type.");
 
-  const supabase = createAdminClient();
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+  const extensions: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/avif": "avif",
+    "application/pdf": "pdf"
+  };
+  const extension = extensions[file.type];
+  if (!extension) throw new Error("Unsupported file type.");
   const path = `${folder}/${crypto.randomUUID()}.${extension}`;
   const { error } = await supabase.storage.from(bucket).upload(path, file, {
     contentType: file.type,
@@ -61,6 +73,7 @@ export async function createBookAction(formData: FormData) {
   }
 
   const cover = await upload(
+    supabase,
     "book-covers",
     slugify(name),
     formData.get("cover") as File | null,
@@ -106,6 +119,7 @@ export async function createBookAction(formData: FormData) {
   const preview = formData.get("preview") as File | null;
   if (preview?.size) {
     const uploaded = await upload(
+      supabase,
       "book-preview",
       book.id,
       preview,
@@ -113,13 +127,22 @@ export async function createBookAction(formData: FormData) {
       ["application/pdf", "image/jpeg", "image/png", "image/webp"]
     );
     if (uploaded) {
-      await supabase.from("book_previews").insert({
+      const { error: previewError } = await supabase
+        .from("book_previews")
+        .insert({
         book_id: book.id,
         type: preview.type === "application/pdf" ? "pdf" : "image",
         url: preview.type === "application/pdf" ? null : uploaded.url,
         storage_path: uploaded.path,
         sort_order: 1
       });
+      if (previewError) {
+        await supabase.storage.from("book-preview").remove([uploaded.path]);
+        await supabase.from("books").delete().eq("id", book.id);
+        if (cover)
+          await supabase.storage.from("book-covers").remove([cover.path]);
+        throw previewError;
+      }
     }
   }
 
@@ -149,6 +172,7 @@ export async function updateBookAction(formData: FormData) {
     .eq("id", id)
     .single();
   const cover = await upload(
+    supabase,
     "book-covers",
     slugify(name),
     formData.get("cover") as File | null,
@@ -195,6 +219,7 @@ export async function updateBookAction(formData: FormData) {
   const preview = formData.get("preview") as File | null;
   if (preview?.size) {
     const uploaded = await upload(
+      supabase,
       "book-preview",
       id,
       preview,
@@ -202,13 +227,19 @@ export async function updateBookAction(formData: FormData) {
       ["application/pdf", "image/jpeg", "image/png", "image/webp"]
     );
     if (uploaded) {
-      await supabase.from("book_previews").insert({
+      const { error: previewError } = await supabase
+        .from("book_previews")
+        .insert({
         book_id: id,
         type: preview.type === "application/pdf" ? "pdf" : "image",
         url: preview.type === "application/pdf" ? null : uploaded.url,
         storage_path: uploaded.path,
         sort_order: 1
       });
+      if (previewError) {
+        await supabase.storage.from("book-preview").remove([uploaded.path]);
+        throw previewError;
+      }
     }
   }
   revalidatePath("/");
@@ -226,20 +257,20 @@ export async function deleteBookAction(formData: FormData) {
       supabase.from("book_images").select("storage_path").eq("book_id", id),
       supabase.from("book_previews").select("storage_path").eq("book_id", id)
     ]);
-  if (book?.cover_path)
-    await supabase.storage.from("book-covers").remove([book.cover_path]);
   const galleryPaths = (images ?? [])
     .map((item) => item.storage_path)
     .filter(Boolean) as string[];
   const previewPaths = (previews ?? [])
     .map((item) => item.storage_path)
     .filter(Boolean) as string[];
+  const { error } = await supabase.from("books").delete().eq("id", id);
+  if (error) throw error;
+  if (book?.cover_path)
+    await supabase.storage.from("book-covers").remove([book.cover_path]);
   if (galleryPaths.length)
     await supabase.storage.from("book-gallery").remove(galleryPaths);
   if (previewPaths.length)
     await supabase.storage.from("book-preview").remove(previewPaths);
-  const { error } = await supabase.from("books").delete().eq("id", id);
-  if (error) throw error;
   revalidatePath("/admin/books");
   revalidatePath("/shop");
 }
@@ -248,6 +279,7 @@ export async function createCategoryAction(formData: FormData) {
   const supabase = await adminClient();
   const name = z.string().min(2).max(100).parse(formData.get("name"));
   const image = await upload(
+    supabase,
     "category-images",
     slugify(name),
     formData.get("image") as File | null,
@@ -271,6 +303,7 @@ export async function createWriterAction(formData: FormData) {
   const supabase = await adminClient();
   const name = z.string().min(2).max(120).parse(formData.get("name"));
   const photo = await upload(
+    supabase,
     "writer-images",
     slugify(name),
     formData.get("photo") as File | null,
@@ -328,6 +361,7 @@ export async function createBannerAction(formData: FormData) {
   const supabase = await adminClient();
   const title = z.string().min(2).max(200).parse(formData.get("title"));
   const image = await upload(
+    supabase,
     "hero-banners",
     slugify(title),
     formData.get("image") as File | null,
@@ -360,14 +394,16 @@ export async function deleteResourceAction(formData: FormData) {
     .enum(["categories", "writers", "coupons"])
     .parse(formData.get("resource"));
 
+  let storedPath: string | null = null;
+  let bucket: string | null = null;
   if (resource === "categories") {
     const { data } = await supabase
       .from("categories")
       .select("image_path")
       .eq("id", id)
       .single();
-    if (data?.image_path)
-      await supabase.storage.from("category-images").remove([data.image_path]);
+    storedPath = data?.image_path ?? null;
+    bucket = "category-images";
   }
   if (resource === "writers") {
     const { data } = await supabase
@@ -375,15 +411,37 @@ export async function deleteResourceAction(formData: FormData) {
       .select("photo_path")
       .eq("id", id)
       .single();
-    if (data?.photo_path)
-      await supabase.storage.from("writer-images").remove([data.photo_path]);
+    storedPath = data?.photo_path ?? null;
+    bucket = "writer-images";
   }
 
   const { error } = await supabase.from(resource).delete().eq("id", id);
   if (error) throw error;
+  if (bucket && storedPath)
+    await supabase.storage.from(bucket).remove([storedPath]);
   revalidatePath(`/admin/${resource}`);
   revalidatePath("/");
   revalidatePath("/shop");
+}
+
+export async function toggleResourceAction(formData: FormData) {
+  const supabase = await adminClient();
+  const resource = z
+    .enum(["books", "categories", "writers", "coupons", "hero_banners"])
+    .parse(formData.get("resource"));
+  const id = z.string().uuid().parse(formData.get("id"));
+  const active =
+    z.enum(["true", "false"]).parse(formData.get("active")) === "true";
+  const { error } = await supabase
+    .from(resource)
+    .update({ is_active: active })
+    .eq("id", id);
+  if (error) throw error;
+  revalidatePath("/");
+  revalidatePath("/shop");
+  revalidatePath(
+    resource === "hero_banners" ? "/admin/banners" : `/admin/${resource}`
+  );
 }
 
 export async function deleteBannerAction(formData: FormData) {
@@ -394,10 +452,10 @@ export async function deleteBannerAction(formData: FormData) {
     .select("image_path")
     .eq("id", id)
     .single();
-  if (banner?.image_path)
-    await supabase.storage.from("hero-banners").remove([banner.image_path]);
   const { error } = await supabase.from("hero_banners").delete().eq("id", id);
   if (error) throw error;
+  if (banner?.image_path)
+    await supabase.storage.from("hero-banners").remove([banner.image_path]);
   revalidatePath("/admin/banners");
   revalidatePath("/");
 }

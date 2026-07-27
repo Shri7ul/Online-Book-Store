@@ -7,7 +7,7 @@ import {
   demoWriters
 } from "@/lib/demo-data";
 import { isSupabaseConfigured } from "@/lib/repositories/catalog";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 export async function getAdminDashboardData() {
   if (!isSupabaseConfigured) {
@@ -40,7 +40,7 @@ export async function getAdminDashboardData() {
     };
   }
 
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const [
     books,
     orders,
@@ -71,6 +71,16 @@ export async function getAdminDashboardData() {
       .order("created_at", { ascending: false })
       .limit(8)
   ]);
+  const queryError = [
+    books.error,
+    orders.error,
+    pending.error,
+    coupons.error,
+    revenue.error,
+    visitors.error,
+    recentOrders.error
+  ].find(Boolean);
+  if (queryError) throw queryError;
 
   return {
     metrics: {
@@ -90,49 +100,54 @@ export async function getAdminDashboardData() {
 
 export async function getAdminBooks() {
   if (!isSupabaseConfigured) return demoBooks;
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("books")
     .select("*,writer:writers(id,name),category:categories(id,name)")
     .order("created_at", { ascending: false })
     .limit(100);
+  if (error) throw error;
   return data ?? [];
 }
 
 export async function getAdminBook(id: string) {
   if (!isSupabaseConfigured)
     return demoBooks.find((book) => book.id === id) ?? null;
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("books")
     .select("*")
     .eq("id", id)
     .maybeSingle();
+  if (error) throw error;
   return data;
 }
 
 export async function getAdminCategories() {
   if (!isSupabaseConfigured) return demoCategories;
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("categories")
     .select("*,books(count)")
     .order("sort_order");
+  if (error) throw error;
   return data ?? [];
 }
 
 export async function getAdminWriters() {
   if (!isSupabaseConfigured) return demoWriters;
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("writers")
     .select("*,books(count)")
     .order("name");
+  if (error) throw error;
   return data ?? [];
 }
 
 export async function getAdminBanners() {
   if (!isSupabaseConfigured) return demoBanners;
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("hero_banners")
     .select("*")
     .order("sort_order");
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -162,10 +177,11 @@ export async function getAdminCoupons() {
         is_active: true
       }
     ];
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("coupons")
     .select("*")
     .order("created_at", { ascending: false });
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -180,11 +196,12 @@ export async function getAdminOrders() {
       transaction_id: `DEMO-TXN-${index + 1}`,
       order_items: [{ quantity: 1, book_name: demoBooks[index].name }]
     }));
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("orders")
     .select("*,order_items(id,book_name,quantity,unit_price,line_total)")
     .order("created_at", { ascending: false })
     .limit(100);
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -206,20 +223,22 @@ export async function getAdminUsers() {
       preferred_language: "en",
       created_at: new Date(Date.now() - index * 86400000 * 4).toISOString()
     }));
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("users")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(100);
+  if (error) throw error;
   return data ?? [];
 }
 
 export async function getAdminSettings() {
   if (!isSupabaseConfigured) return demoSettings;
-  const { data } = await createAdminClient()
+  const { data, error } = await (await createClient())
     .from("settings")
     .select("*")
     .eq("id", true)
     .single();
+  if (error) throw error;
   return data ?? demoSettings;
 }
