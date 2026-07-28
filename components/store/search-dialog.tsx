@@ -21,8 +21,9 @@ export function SearchDialog({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (query.trim().length < 2) {
+    if (!query.trim()) {
       setResults([]);
+      setLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -73,7 +74,7 @@ export function SearchDialog({
           </div>
 
           <div className="max-h-[60vh] overflow-y-auto p-3">
-            {query.length < 2 ? (
+            {!query.trim() ? (
               <div className="p-8 text-center text-sm text-muted-foreground">
                 Try “quiet”, “business”, or a writer’s name.
               </div>

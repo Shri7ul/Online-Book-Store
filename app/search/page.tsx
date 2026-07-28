@@ -9,7 +9,8 @@ export default async function SearchPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { q = "" } = await searchParams;
-  const result = await getBooks({ search: q, limit: 40 });
+  const query = q.trim();
+  const result = await getBooks({ search: query, limit: 40 });
   return (
     <div className="container py-12">
       <p className="text-xs font-black uppercase tracking-[0.16em] text-accent-foreground">
