@@ -39,7 +39,7 @@ export function StoreHeader({ settings }: { settings: StoreSettings }) {
 
   return (
     <>
-      <div className="overflow-hidden bg-primary px-3 py-2 text-center text-[50px] font-semibold text-primary-foreground sm:text-[20px]">
+      <div className="overflow-hidden bg-primary px-3 py-2 text-center text-[10px] font-semibold text-primary-foreground sm:text-[20px]">
         Delivery across Bangladesh · Inside Dhaka{" "}
         {settings.delivery_inside_dhaka} BDT · Outside Dhaka{" "}
         {settings.delivery_outside_dhaka} BDT
