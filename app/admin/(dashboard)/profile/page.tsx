@@ -22,7 +22,7 @@ export default async function ProfilePage() {
               <p className="text-xs text-muted-foreground">Role</p>
               <p className="mt-1 flex items-center gap-2 font-semibold capitalize">
                 <ShieldCheck className="size-4 text-primary" />
-                {"role" in admin ? admin.role : "Owner preview"}
+                {admin.role}
               </p>
             </div>
             <p className="border-t pt-5 text-xs leading-6 text-muted-foreground">

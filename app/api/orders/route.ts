@@ -27,7 +27,7 @@ const orderSchema = z.object({
   items: z
     .array(
       z.object({
-        book_id: z.string().min(1),
+        book_id: z.string().uuid(),
         quantity: z.number().int().min(1).max(20)
       })
     )
@@ -89,6 +89,12 @@ export async function POST(request: Request) {
     });
     if (error) {
       if (error.code === "P0001") throw new HttpError(error.message, 400);
+      console.error("Order RPC failed.", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
       throw error;
     }
     const created = data?.[0];

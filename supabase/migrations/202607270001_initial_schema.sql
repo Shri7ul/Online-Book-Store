@@ -387,36 +387,6 @@ as $$
   );
 $$;
 
-create or replace function public.claim_initial_admin()
-returns boolean
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if (select auth.uid()) is null then
-    raise exception 'Authentication required';
-  end if;
-
-  if exists (select 1 from public.admins) then
-    return exists (
-      select 1 from public.admins where id = (select auth.uid())
-    );
-  end if;
-
-  insert into public.admins (id, role, display_name)
-  select
-    u.id,
-    'owner',
-    coalesce(u.raw_user_meta_data ->> 'full_name', u.email)
-  from auth.users u
-  where u.id = (select auth.uid())
-  on conflict (id) do nothing;
-
-  return true;
-end;
-$$;
-
 create or replace function public.refresh_book_search_vector()
 returns trigger
 language plpgsql
@@ -818,7 +788,6 @@ with check (public.is_admin());
 create policy "admins delete store assets" on storage.objects
 for delete to authenticated using (public.is_admin());
 
-grant execute on function public.claim_initial_admin() to authenticated;
 grant execute on function public.search_books(text, integer, integer) to anon, authenticated;
 grant execute on function public.admin_update_order_status(uuid, public.order_status, text) to authenticated;
 

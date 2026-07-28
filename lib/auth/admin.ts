@@ -4,13 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/repositories/catalog";
 
 export async function requireAdmin() {
-  if (!isSupabaseConfigured) {
-    return {
-      id: "demo-admin",
-      email: "preview@minibookcottage.com",
-      displayName: "Store Preview"
-    };
-  }
+  if (!isSupabaseConfigured) redirect("/admin/login");
 
   const supabase = await createClient();
   const {

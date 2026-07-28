@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "qa:orders": "node scripts/qa-order-flow.cjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
