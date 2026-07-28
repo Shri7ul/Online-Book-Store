@@ -88,7 +88,6 @@ export async function POST(request: Request) {
       generated_public_token: trackingToken
     });
     if (error) {
-      if (error.code === "P0001") throw new HttpError(error.message, 400);
       console.error("Order RPC failed.", {
         code: error.code,
         message: error.message,
@@ -108,19 +107,63 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
-    const message =
-      error instanceof z.ZodError
-        ? error.issues[0]?.message ?? "Please check your information."
-        : error instanceof HttpError
-          ? error.message
-          : "Could not place the order.";
-    const status =
-      error instanceof z.ZodError
-        ? 400
-        : error instanceof HttpError
-          ? error.status
-          : 500;
-    if (status === 500) console.error("Order creation failed.", error);
-    return NextResponse.json({ error: message }, { status });
+    const response = getOrderErrorResponse(error);
+    if (response.status === 500)
+      console.error("Order creation failed.", error);
+    return NextResponse.json(response.body, { status: response.status });
   }
+}
+
+function getOrderErrorResponse(error: unknown): {
+  status: number;
+  body: Record<string, unknown>;
+} {
+  if (error instanceof z.ZodError) {
+    return {
+      status: 400,
+      body: {
+        error: error.issues
+          .map((issue) => {
+            const path = issue.path.join(".");
+            return path ? `${path}: ${issue.message}` : issue.message;
+          })
+          .join("; "),
+        issues: error.issues
+      }
+    };
+  }
+
+  if (error instanceof HttpError) {
+    return {
+      status: error.status,
+      body: { error: error.message }
+    };
+  }
+
+  if (error && typeof error === "object") {
+    const databaseError = error as {
+      code?: unknown;
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+    };
+    const message =
+      typeof databaseError.message === "string"
+        ? databaseError.message
+        : JSON.stringify(error);
+    return {
+      status: databaseError.code === "P0001" ? 400 : 500,
+      body: {
+        error: message,
+        code: databaseError.code ?? null,
+        details: databaseError.details ?? null,
+        hint: databaseError.hint ?? null
+      }
+    };
+  }
+
+  return {
+    status: 500,
+    body: { error: String(error) }
+  };
 }

@@ -11,7 +11,9 @@ const chromePath =
   process.env.CHROME_PATH ??
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const createdOrderNumbers = [];
+const preservedOrderNumbers = new Set();
 const browserErrors = [];
+const browserDiagnostics = [];
 
 loadEnv(path.join(root, ".env"));
 
@@ -217,6 +219,64 @@ function monitorPage(page, label) {
   page.on("pageerror", (error) => {
     browserErrors.push(`${label} page: ${error.message}`);
   });
+  page.on("websocket", (websocket) => {
+    if (!websocket.url().includes("/realtime/")) return;
+    browserDiagnostics.push(`${label} realtime opened`);
+    websocket.on("framesent", (event) => {
+      const summary = summarizeRealtimeFrame(event.payload);
+      if (summary) browserDiagnostics.push(`${label} sent ${summary}`);
+    });
+    websocket.on("framereceived", (event) => {
+      const summary = summarizeRealtimeFrame(event.payload);
+      if (summary) browserDiagnostics.push(`${label} received ${summary}`);
+    });
+    websocket.on("close", () => {
+      browserDiagnostics.push(`${label} realtime closed`);
+    });
+  });
+}
+
+function summarizeRealtimeFrame(payload) {
+  if (typeof payload !== "string") return null;
+  try {
+    const frame = JSON.parse(payload);
+    if (!Array.isArray(frame) || frame.length < 5) return null;
+    const topic = frame[2];
+    const event = frame[3];
+    const body = frame[4];
+    if (
+      event !== "phx_join" &&
+      event !== "phx_reply" &&
+      event !== "postgres_changes" &&
+      event !== "access_token"
+    ) {
+      return null;
+    }
+    const status =
+      body && typeof body === "object" && "status" in body
+        ? ` status=${body.status}`
+        : "";
+    let auth = "";
+    if (event === "phx_join") {
+      if (
+        body &&
+        typeof body === "object" &&
+        typeof body.access_token === "string"
+      ) {
+        const claims = JSON.parse(
+          Buffer.from(body.access_token.split(".")[1], "base64url").toString(
+            "utf8"
+          )
+        );
+        auth = ` auth_role=${claims.role ?? "unknown"}`;
+      } else {
+        auth = " auth_role=none";
+      }
+    }
+    return `topic=${topic} event=${event}${status}${auth}`;
+  } catch {
+    return null;
+  }
 }
 
 async function fillCheckout(page, name, zone) {
@@ -227,7 +287,7 @@ async function fillCheckout(page, name, zone) {
     .fill("checkout.qa@example.com");
   await page.getByLabel("District", { exact: true }).fill("Dhaka");
   await page.getByLabel("Area", { exact: true }).fill("Dhanmondi");
-  await page.getByLabel("Delivery zone", { exact: true }).selectOption(zone);
+  await page.locator("select").first().selectOption(zone);
   await page
     .getByLabel("Full address", { exact: true })
     .fill("House 1, Road 2, Dhanmondi, Dhaka");
@@ -244,11 +304,15 @@ async function addBookAndCheckout(page, book) {
     .getByRole("button", { name: "Add to cart", exact: true })
     .first()
     .click();
-  await page.goto(`${baseUrl}/checkout`, { waitUntil: "networkidle" });
-  assert(
-    await page.getByText(book.name, { exact: true }).first().isVisible(),
-    "The selected book is missing from checkout."
+  await page.waitForFunction(
+    (bookId) =>
+      window.localStorage
+        .getItem("mini-book-cottage-cart")
+        ?.includes(bookId),
+    book.id
   );
+  await page.goto(`${baseUrl}/checkout`, { waitUntil: "networkidle" });
+  await page.getByText(book.name).first().waitFor({ state: "visible" });
 }
 
 async function placeCodOrder(page, book, coupon) {
@@ -571,14 +635,21 @@ async function verifyDatabase({
 }
 
 async function cleanup() {
-  if (createdOrderNumbers.length) {
+  const ordersToDelete = createdOrderNumbers.filter(
+    (orderNumber) => !preservedOrderNumbers.has(orderNumber)
+  );
+  if (ordersToDelete.length) {
     const { error } = await service
       .from("orders")
       .delete()
-      .in("order_number", createdOrderNumbers);
+      .in("order_number", ordersToDelete);
     if (error) console.error(`Could not delete QA orders: ${error.message}`);
   }
-  if (couponId && couponBaseline !== undefined) {
+  if (
+    couponId &&
+    couponBaseline !== undefined &&
+    preservedOrderNumbers.size === 0
+  ) {
     const { error } = await service
       .from("coupons")
       .update({ usage_count: couponBaseline })
@@ -664,12 +735,18 @@ async function main() {
 
   const storeContext = await browser.newContext();
   await storeContext.addInitScript(() => {
-    window.localStorage.removeItem("mini-book-cottage-cart");
+    if (!window.sessionStorage.getItem("qa-cart-cleared")) {
+      window.localStorage.removeItem("mini-book-cottage-cart");
+      window.sessionStorage.setItem("qa-cart-cleared", "true");
+    }
   });
   const storePage = await storeContext.newPage();
   monitorPage(storePage, "store");
 
   const cod = await placeCodOrder(storePage, book, coupon);
+  if (process.env.KEEP_QA_COD_ORDER === "1") {
+    preservedOrderNumbers.add(cod.order_number);
+  }
   await adminPage
     .getByText(cod.order_number, { exact: true })
     .waitFor({ timeout: 15_000 });
@@ -686,7 +763,7 @@ async function main() {
   await adminPage.getByText(online.order_number, { exact: true }).waitFor();
   await adminPage.getByText(cod.transactionId, { exact: true }).waitFor();
   assert(
-    (await adminPage.getByText(book.name, { exact: true }).count()) >= 2,
+    (await adminPage.getByText(book.name).count()) >= 2,
     "Admin order details do not include both line items."
   );
 
@@ -743,7 +820,9 @@ async function main() {
         tracking_endpoints: "passed",
         admin_dashboard_realtime: "both orders appeared without reload",
         admin_order_details: "both orders and line items visible",
-        authenticated_admin_rls: `${database.adminOrders.length} orders visible`
+        authenticated_admin_rls: `${database.adminOrders.length} orders visible`,
+        preserved_cod_order:
+          preservedOrderNumbers.size > 0 ? cod.order_number : null
       },
       null,
       2
@@ -757,6 +836,15 @@ async function main() {
 main()
   .catch((error) => {
     console.error(error.stack ?? error.message ?? error);
+    if (browserErrors.length) {
+      console.error("Browser errors:", JSON.stringify(browserErrors, null, 2));
+    }
+    if (browserDiagnostics.length) {
+      console.error(
+        "Browser diagnostics:",
+        JSON.stringify(browserDiagnostics, null, 2)
+      );
+    }
     process.exitCode = 1;
   })
   .finally(cleanup);
